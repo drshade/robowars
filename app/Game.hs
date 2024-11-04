@@ -20,19 +20,20 @@ newtype MaxAcceleration = MaxAcceleration Acceleration deriving (Ord, Eq, Num, S
 newtype MaxSpeed = MaxSpeed Speed deriving (Ord, Eq, Num, Show)
 newtype MaxRotationRate = MaxRotationRate RotationRate deriving (Ord, Eq, Num, Show)
 
-data MovingPlatform = MovingPlatform
-    { position :: Position
-    , rotation :: Rotation
-    , rotationRate :: RotationRate
-    , acceleration :: Acceleration
-    , speed :: Speed
-    }
+data Platform
+    = MovingPlatform
+        { position :: Position
+        , rotation :: Rotation
+        , speed :: Speed
+        }
+    | MountedPlatform
+        { rotation :: Rotation
+        }
     deriving (Show)
 
-data StandingPlatform = StandingPlatform
-    { position :: Position
-    , rotation :: Rotation
-    , rotationRate :: RotationRate
+data PlatformDynamics = PlatformDynamics
+    { rotationRate :: RotationRate
+    , acceleration :: Acceleration
     }
     deriving (Show)
 
@@ -44,9 +45,9 @@ data Limits = Limits
     deriving (Show)
 
 data Entity
-    = Tank MovingPlatform StandingPlatform Limits Script
-    | Projectile MovingPlatform Limits
-    | Mine StandingPlatform
+    = Tank {platformDynamics :: PlatformDynamics, platform :: Platform, turretDynamics :: PlatformDynamics, turret :: Platform, limits :: Limits}
+    | Projectile {dynamics :: PlatformDynamics, platform :: Platform, limits :: Limits}
+    | Mine {platform :: Platform}
 
 -- Allows user input temporarily
 type Script = (TotalTime -> DeltaTime -> [MovementInput] -> Instruction)
@@ -62,50 +63,60 @@ data Instruction
 type TotalTime = Double
 type DeltaTime = Float
 
-tick :: TotalTime -> DeltaTime -> [MovementInput] -> Entity -> Entity
-tick totalTime deltaTime movementInput (Tank platform turret lims script) =
+tick :: TotalTime -> DeltaTime -> [MovementInput] -> Script -> Entity -> Entity
+tick totalTime deltaTime movementInput script (Tank platformDynamics platform turretDynamics turret limits) =
     let op = script totalTime deltaTime movementInput
-        -- Perform the movement / rotation transformations requested
-        (platform', turret') = case op of
-            -- Use lenses here...
-            Throttle amount ->
-                ((platform{acceleration = platform.acceleration + Acceleration (amount * deltaTime)}), turret)
-            Steer amount ->
-                ((platform :: MovingPlatform){rotationRate = platform.rotationRate + RotationRate (amount * deltaTime)}, turret)
-            Aim amount ->
-                (platform, ((turret :: StandingPlatform){rotationRate = turret.rotationRate + RotationRate (amount * deltaTime)}))
-            _ -> (platform, turret)
 
-        -- Clamp the values to the limits
-        platform'' = clampMovingPlatform platform' lims
-        turret'' = clampStandingPlatform turret' lims
+        -- Perform the movement / rotation transformations requested and clamp them to limits
+        new'platformDynamics :: PlatformDynamics
+        new'platformDynamics = clampPlatformDynamics limits $ case op of
+            Throttle amount ->
+                platformDynamics{acceleration = platformDynamics.acceleration + Acceleration (amount * deltaTime)}
+            Steer amount ->
+                platformDynamics{rotationRate = platformDynamics.rotationRate + RotationRate (amount * deltaTime)}
+            _ -> platformDynamics
+
+        new'turretDynamics :: PlatformDynamics
+        new'turretDynamics = clampPlatformDynamics limits $ case op of
+            Aim amount ->
+                turretDynamics{rotationRate = turretDynamics.rotationRate + RotationRate (amount * deltaTime)}
+            _ -> turretDynamics
 
         -- Calculate the new values
-        newRotation = calcRotationFromRotationRate deltaTime (platform''.rotation) (platform''.rotationRate)
-        newTurretRotation = calcRotationFromRotationRate deltaTime (turret''.rotation) (turret''.rotationRate)
-        newSpeed = calcSpeedFromAcceleration deltaTime (platform''.speed) (platform''.acceleration)
-        newPos = calcPositionFromSpeed deltaTime (platform''.position) (platform''.rotation) newSpeed
-     in Tank (platform''{speed = newSpeed, position = newPos, rotation = newRotation}) (turret''{rotation = newTurretRotation}) lims script
-tick totalTime deltaTime movementInput mine@(Mine sp) = mine
-tick totalTime deltaTime movementInput (Projectile mp lims) =
+        new'rotation = calcRotationFromRotationRate deltaTime (platform.rotation) (new'platformDynamics.rotationRate)
+        new'speed = calcSpeedFromAcceleration deltaTime (platform.speed) (new'platformDynamics.acceleration)
+        new'pos = calcPositionFromSpeed deltaTime (platform.position) (platform.rotation) new'speed
+        new'turretRotation = calcRotationFromRotationRate deltaTime (turret.rotation) (new'turretDynamics.rotationRate)
+
+        new'platform = clampPlatform limits (MovingPlatform new'pos new'rotation new'speed)
+        new'turretPlatform = clampPlatform limits (MountedPlatform new'turretRotation)
+     in Tank new'platformDynamics new'platform new'turretDynamics new'turretPlatform limits
+tick totalTime deltaTime movementInput script mine@(Mine _) = mine
+tick totalTime deltaTime movementInput script proj@(Projectile dynamics platform limits) =
     proj
   where
-    newSpeed = calcSpeedFromAcceleration deltaTime (mp.speed) (mp.acceleration)
-    newPos = calcPositionFromSpeed deltaTime (mp.position) (mp.rotation) newSpeed
-    proj = Projectile (mp{speed = newSpeed, position = newPos}) lims
+    new'dynamics = clampPlatformDynamics limits dynamics
+    newSpeed = calcSpeedFromAcceleration deltaTime (platform.speed) (dynamics.acceleration)
+    newPos = calcPositionFromSpeed deltaTime (platform.position) (platform.rotation) newSpeed
 
-clampMovingPlatform :: MovingPlatform -> Limits -> MovingPlatform
-clampMovingPlatform (MovingPlatform position rotation rotationRate acceleration speed) (Limits (MaxAcceleration maxAcceleration) (MaxSpeed maxSpeed) (MaxRotationRate maxRotationRate)) =
+    new'platform = clampPlatform limits (MovingPlatform newPos (platform.rotation) newSpeed)
+
+    proj = Projectile new'dynamics new'platform limits
+
+clampPlatform :: Limits -> Platform -> Platform
+clampPlatform (Limits _ (MaxSpeed maxSpeed) _) (MovingPlatform position rotation speed) =
     MovingPlatform
         position
         rotation
+        (clamp speed maxSpeed)
+clampPlatform (Limits _ _ _) (MountedPlatform rotation) =
+    MountedPlatform rotation
+
+clampPlatformDynamics :: Limits -> PlatformDynamics -> PlatformDynamics
+clampPlatformDynamics (Limits (MaxAcceleration maxAcceleration) _ (MaxRotationRate maxRotationRate)) (PlatformDynamics rotationRate acceleration) =
+    PlatformDynamics
         (clamp rotationRate maxRotationRate)
         (clamp acceleration maxAcceleration)
-        (clamp speed maxSpeed)
-
-clampStandingPlatform :: StandingPlatform -> Limits -> StandingPlatform
-clampStandingPlatform (StandingPlatform position rotation (RotationRate rotationRate)) (Limits _ _ (MaxRotationRate (RotationRate maxRotationRate))) =
-    StandingPlatform position rotation (RotationRate (clamp rotationRate maxRotationRate))
 
 clamp :: (Ord a) => (Num a) => a -> a -> a
 clamp value max' =
@@ -130,9 +141,9 @@ calcRotationFromRotationRate delta (Rotation currentRot) (RotationRate rate) =
 class Default a where
     def :: a
 
-instance Default MovingPlatform where
-    def :: MovingPlatform
-    def = MovingPlatform (Position 0 0) (Rotation 0) (RotationRate 0) (Acceleration 0) (Speed 0)
+instance Default PlatformDynamics where
+    def :: PlatformDynamics
+    def = PlatformDynamics (RotationRate 0) (Acceleration 0)
 
 instance Default Limits where
     def :: Limits
@@ -141,6 +152,5 @@ instance Default Limits where
 tankLimits :: Limits
 tankLimits = Limits (MaxAcceleration (Acceleration 150)) (MaxSpeed (Speed 65)) (MaxRotationRate (RotationRate 25))
 
-instance Default StandingPlatform where
-    def :: StandingPlatform
-    def = StandingPlatform (Position 0 0) (Rotation 0) (RotationRate 0)
+projectileLimits :: Limits
+projectileLimits = Limits (MaxAcceleration (Acceleration 1000)) (MaxSpeed (Speed 1000)) (MaxRotationRate (RotationRate 0))

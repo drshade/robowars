@@ -39,10 +39,13 @@ tankHumanInput totalTime deltaTime movementInput
     | MoveBackward `elem` movementInput = Throttle $ -throttleFactor * deltaTime
     | MoveLeft `elem` movementInput = Steer $ -steerFactor * deltaTime
     | MoveRight `elem` movementInput = Steer $ steerFactor * deltaTime
+    | AimLeft `elem` movementInput = Aim $ -aimFactor * deltaTime
+    | AimRight `elem` movementInput = Aim $ aimFactor * deltaTime
     | otherwise = DoNothing
   where
     throttleFactor = 15000
     steerFactor = 3000
+    aimFactor = 3000
 
 tankAutoScript :: Script
 tankAutoScript totalTime deltaTime movementInput
@@ -56,11 +59,15 @@ tankAutoScript totalTime deltaTime movementInput
 initGameState =
     GameState
         [ Tank
-            ((def :: MovingPlatform){position = Position 500 500, rotation = Rotation 180, acceleration = Acceleration 0, speed = Speed 0, rotationRate = RotationRate (-0)})
-            ((def :: StandingPlatform){rotationRate = RotationRate (-0)})
+            def
+            MovingPlatform{position = Position 500 500, rotation = Rotation 180, speed = Speed 0}
+            def
+            MountedPlatform{rotation = Rotation (0)}
             tankLimits
-            tankHumanInput
-        , Projectile (def{position = Position 100 100, rotation = Rotation 180, acceleration = Acceleration 100, speed = Speed 0}) def
+        , Projectile
+            PlatformDynamics{acceleration = Acceleration 100}
+            MovingPlatform{position = Position 100 100, rotation = Rotation 180, speed = Speed 0}
+            projectileLimits
         ]
 
 startup :: IO RaylibState
@@ -77,7 +84,7 @@ mainLoop (GameState entities, window) = do
     totalTime <- getTime
     delta <- getFrameTime
     movementInputs <- getMovementInputs
-    let entities' = tick totalTime delta movementInputs <$> entities
+    let entities' = tick totalTime delta movementInputs tankHumanInput <$> entities
     drawing
         ( do
             beginMode2D camera
@@ -125,19 +132,19 @@ drawBoxOffset (Position posx posy) width height (Rotation rotation) color (Posit
     origin offx offy = Vector2 (offx + (width / 2)) (offy + (height / 2))
 
 drawTelemetry :: Entity -> IO ()
-drawTelemetry (Tank platform _ _ _) =
+drawTelemetry (Tank dynamics platform _ _ _) =
     let (Position x y) = platform.position
      in do
-            drawText ((take 100 $ show platform.speed) <> "/" <> (take 100 $ show platform.acceleration)) (round x + 12) (round y - 15) 18 black
-            drawText (show platform.acceleration) (round x + 12) (round y - 0) 18 black
-            drawText (show platform.rotationRate) (round x + 12) (round y + 15) 18 black
+            drawText ((take 100 $ show platform.speed) <> "/" <> (take 100 $ show dynamics.acceleration)) (round x + 12) (round y - 15) 18 black
+            drawText (show dynamics.acceleration) (round x + 12) (round y - 0) 18 black
+            drawText (show dynamics.rotationRate) (round x + 12) (round y + 15) 18 black
 drawTelemetry _ = pure ()
 
 drawEntity :: Entity -> IO ()
-drawEntity (Projectile platform _) =
+drawEntity (Projectile _ platform _) =
     drawBox platform.position 3 5 platform.rotation black
 drawEntity (Mine _) = pure ()
-drawEntity entity@(Tank platform turret _ _) = do
+drawEntity entity@(Tank _ platform _ turret _) = do
     drawBox platform.position 20 30 platform.rotation darkGreen
     drawBoxOffset platform.position 5 25 (Rotation $ coerce platform.rotation + coerce turret.rotation) black (Position 0 10)
     drawTelemetry entity

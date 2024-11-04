@@ -8,17 +8,17 @@ import Input (MovementInput)
 
 data Position = Position Float Float deriving (Show)
 
-newtype RotationRate = RotationRate Float deriving (Show)
-newtype Rotation = Rotation Float deriving (Show)
+newtype RotationRate = RotationRate Float deriving (Ord, Eq, Num, Show)
+newtype Rotation = Rotation Float deriving (Ord, Eq, Num, Show)
 
-newtype Acceleration = Acceleration Float deriving (Show)
-newtype Speed = Speed Float deriving (Show)
+newtype Acceleration = Acceleration Float deriving (Ord, Eq, Num, Show)
+newtype Speed = Speed Float deriving (Ord, Eq, Num, Show)
 
-data Liveliness = Alive | Dead deriving (Show)
+data Liveliness = Alive | Dead deriving (Eq, Show)
 
-newtype MaxAcceleration = MaxAcceleration Acceleration deriving (Show)
-newtype MaxSpeed = MaxSpeed Speed deriving (Show)
-newtype MaxRotationRate = MaxRotationRate RotationRate deriving (Show)
+newtype MaxAcceleration = MaxAcceleration Acceleration deriving (Ord, Eq, Num, Show)
+newtype MaxSpeed = MaxSpeed Speed deriving (Ord, Eq, Num, Show)
+newtype MaxRotationRate = MaxRotationRate RotationRate deriving (Ord, Eq, Num, Show)
 
 data MovingPlatform = MovingPlatform
     { position :: Position
@@ -69,14 +69,11 @@ tick totalTime deltaTime movementInput (Tank platform turret lims script) =
         (platform', turret') = case op of
             -- Use lenses here...
             Throttle amount ->
-                let (Acceleration current) = platform.acceleration
-                 in ((platform{acceleration = Acceleration $ current + (amount * deltaTime)}), turret)
+                ((platform{acceleration = platform.acceleration + Acceleration (amount * deltaTime)}), turret)
             Steer amount ->
-                let (RotationRate current) = platform.rotationRate
-                 in (((platform :: MovingPlatform){rotationRate = RotationRate $ current + (amount * deltaTime)}), turret)
+                ((platform :: MovingPlatform){rotationRate = platform.rotationRate + RotationRate (amount * deltaTime)}, turret)
             Aim amount ->
-                let (RotationRate current) = turret.rotationRate
-                 in (platform, ((turret :: StandingPlatform){rotationRate = RotationRate $ current + (amount * deltaTime)}))
+                (platform, ((turret :: StandingPlatform){rotationRate = turret.rotationRate + RotationRate (amount * deltaTime)}))
             _ -> (platform, turret)
 
         -- Clamp the values to the limits
@@ -98,19 +95,19 @@ tick totalTime deltaTime movementInput (Projectile mp lims) =
     proj = Projectile (mp{speed = newSpeed, position = newPos}) lims
 
 clampMovingPlatform :: MovingPlatform -> Limits -> MovingPlatform
-clampMovingPlatform (MovingPlatform position rotation (RotationRate rotationRate) (Acceleration acceleration) (Speed speed)) (Limits (MaxAcceleration (Acceleration maxAcceleration)) (MaxSpeed (Speed maxSpeed)) (MaxRotationRate (RotationRate maxRotationRate))) =
+clampMovingPlatform (MovingPlatform position rotation rotationRate acceleration speed) (Limits (MaxAcceleration maxAcceleration) (MaxSpeed maxSpeed) (MaxRotationRate maxRotationRate)) =
     MovingPlatform
         position
         rotation
-        (RotationRate (clamp rotationRate maxRotationRate))
-        (Acceleration (clamp acceleration maxAcceleration))
-        (Speed (clamp speed maxSpeed))
+        (clamp rotationRate maxRotationRate)
+        (clamp acceleration maxAcceleration)
+        (clamp speed maxSpeed)
 
 clampStandingPlatform :: StandingPlatform -> Limits -> StandingPlatform
 clampStandingPlatform (StandingPlatform position rotation (RotationRate rotationRate)) (Limits _ _ (MaxRotationRate (RotationRate maxRotationRate))) =
     StandingPlatform position rotation (RotationRate (clamp rotationRate maxRotationRate))
 
-clamp :: Float -> Float -> Float
+clamp :: (Ord a) => (Num a) => a -> a -> a
 clamp value max' =
     if abs value > max' then (if value < 0 then (max' * (-1)) else max') else (value)
 

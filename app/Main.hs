@@ -16,6 +16,7 @@ import Raylib.Types (Camera2D (..), Color, KeyboardKey, Vector2, vector2'x, patt
 import Raylib.Types.Core (Rectangle (..))
 import Raylib.Util (WindowResources, drawing, raylibApplication)
 import Raylib.Util.Colors (black, darkGreen, lightGray, rayWhite)
+import Types
 
 screenWidth, screenHeight, old_targetFPS :: Int
 screenWidth = 1000
@@ -44,8 +45,8 @@ tankHumanInput totalTime deltaTime movementInput
     | otherwise = DoNothing
   where
     throttleFactor = 15000
-    steerFactor = 3000
-    aimFactor = 3000
+    steerFactor = 5000
+    aimFactor = 5000
 
 tankAutoScript :: Script
 tankAutoScript totalTime deltaTime movementInput
@@ -132,12 +133,12 @@ drawBoxOffset (Position posx posy) width height (Rotation rotation) color (Posit
     origin offx offy = Vector2 (offx + (width / 2)) (offy + (height / 2))
 
 drawTelemetry :: Entity -> IO ()
-drawTelemetry (Tank dynamics platform _ _ _) =
+drawTelemetry (Tank dynamics platform turretDynamics turret _) =
     let (Position x y) = platform.position
      in do
-            drawText ((take 100 $ show platform.speed) <> "/" <> (take 100 $ show dynamics.acceleration)) (round x + 12) (round y - 15) 18 black
-            drawText (show dynamics.acceleration) (round x + 12) (round y - 0) 18 black
-            drawText (show dynamics.rotationRate) (round x + 12) (round y + 15) 18 black
+            drawText (show platform.speed <> "/" <> show dynamics.acceleration) (round x + 12) (round y - 15) 18 black
+            drawText (show platform.rotation <> "/" <> show dynamics.rotationRate) (round x + 12) (round y - 0) 18 black
+            drawText ("Turret " <> show turret.rotation <> "/" <> show turretDynamics.rotationRate) (round x + 12) (round y + 15) 18 black
 drawTelemetry _ = pure ()
 
 drawEntity :: Entity -> IO ()

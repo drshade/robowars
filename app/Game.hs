@@ -5,63 +5,7 @@
 module Game where
 
 import Input (MovementInput)
-
-data Position = Position Float Float deriving (Show)
-
-newtype RotationRate = RotationRate Float deriving (Ord, Eq, Num, Show)
-newtype Rotation = Rotation Float deriving (Ord, Eq, Num, Show)
-
-newtype Acceleration = Acceleration Float deriving (Ord, Eq, Num, Show)
-newtype Speed = Speed Float deriving (Ord, Eq, Num, Show)
-
-data Liveliness = Alive | Dead deriving (Eq, Show)
-
-newtype MaxAcceleration = MaxAcceleration Acceleration deriving (Ord, Eq, Num, Show)
-newtype MaxSpeed = MaxSpeed Speed deriving (Ord, Eq, Num, Show)
-newtype MaxRotationRate = MaxRotationRate RotationRate deriving (Ord, Eq, Num, Show)
-
-data Platform
-    = MovingPlatform
-        { position :: Position
-        , rotation :: Rotation
-        , speed :: Speed
-        }
-    | MountedPlatform
-        { rotation :: Rotation
-        }
-    deriving (Show)
-
-data PlatformDynamics = PlatformDynamics
-    { rotationRate :: RotationRate
-    , acceleration :: Acceleration
-    }
-    deriving (Show)
-
-data Limits = Limits
-    { maxAcceleration :: MaxAcceleration
-    , maxSpeed :: MaxSpeed
-    , maxRotationRate :: MaxRotationRate
-    }
-    deriving (Show)
-
-data Entity
-    = Tank {platformDynamics :: PlatformDynamics, platform :: Platform, turretDynamics :: PlatformDynamics, turret :: Platform, limits :: Limits}
-    | Projectile {dynamics :: PlatformDynamics, platform :: Platform, limits :: Limits}
-    | Mine {platform :: Platform}
-
--- Allows user input temporarily
-type Script = (TotalTime -> DeltaTime -> [MovementInput] -> Instruction)
-
-data Instruction
-    = Throttle Float
-    | Steer Float
-    | Aim Float
-    | Fire
-    | LayMine
-    | DoNothing
-
-type TotalTime = Double
-type DeltaTime = Float
+import Types
 
 tick :: TotalTime -> DeltaTime -> [MovementInput] -> Script -> Entity -> Entity
 tick totalTime deltaTime movementInput script (Tank platformDynamics platform turretDynamics turret limits) =

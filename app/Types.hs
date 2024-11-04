@@ -1,6 +1,10 @@
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE NoFieldSelectors #-}
+
 module Types where
 
-import Input (MovementInput)
+import Script (Script)
 import Text.Printf (printf)
 
 data Position = Position Float Float deriving (Show)
@@ -36,44 +40,23 @@ newtype MaxSpeed = MaxSpeed Speed deriving (Ord, Eq, Num, Show)
 newtype MaxRotationRate = MaxRotationRate RotationRate deriving (Ord, Eq, Num, Show)
 
 data Platform
-    = MovingPlatform
-        { position :: Position
-        , rotation :: Rotation
-        , speed :: Speed
-        }
-    | MountedPlatform
-        { rotation :: Rotation
-        }
+    = MovingPlatform Position Rotation Speed
+    | MountedPlatform Rotation
     deriving (Show)
 
-data PlatformDynamics = PlatformDynamics
-    { rotationRate :: RotationRate
-    , acceleration :: Acceleration
-    }
+data Dynamics = Dynamics RotationRate Acceleration
     deriving (Show)
 
-data Limits = Limits
-    { maxAcceleration :: MaxAcceleration
-    , maxSpeed :: MaxSpeed
-    , maxRotationRate :: MaxRotationRate
-    }
+rotationRate :: Dynamics -> RotationRate
+rotationRate (Dynamics rotationRate' _) = rotationRate'
+
+acceleration :: Dynamics -> Acceleration
+acceleration (Dynamics _ acceleration') = acceleration'
+
+data Limits = Limits MaxAcceleration MaxSpeed MaxRotationRate
     deriving (Show)
 
 data Entity
-    = Tank {platformDynamics :: PlatformDynamics, platform :: Platform, turretDynamics :: PlatformDynamics, turret :: Platform, limits :: Limits}
-    | Projectile {dynamics :: PlatformDynamics, platform :: Platform, limits :: Limits}
-    | Mine {platform :: Platform}
-
--- Allows user input temporarily
-type Script = (TotalTime -> DeltaTime -> [MovementInput] -> Instruction)
-
-data Instruction
-    = Throttle Float
-    | Steer Float
-    | Aim Float
-    | Fire
-    | LayMine
-    | DoNothing
-
-type TotalTime = Double
-type DeltaTime = Float
+    = Tank Dynamics Platform Dynamics Platform Limits (Script ())
+    | Projectile Dynamics Platform Limits
+    | Mine Platform

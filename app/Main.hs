@@ -6,16 +6,18 @@
 
 module Main where
 
+import Control.Monad (join)
 import Data.Coerce (coerce)
 import Game
-import Input (MovementInput (..), getMovementInputs)
-import Raylib.Core (beginMode2D, clearBackground, closeWindow, endMode2D, getFrameTime, getKeyPressed, getMonitorRefreshRate, getTime, initWindow, isKeyDown, setTargetFPS, windowShouldClose)
-import Raylib.Core.Shapes (drawLine, drawRectangleLinesEx, drawRectanglePro, drawRectangleV)
+import Input (getInteractiveInputs)
+import Raylib.Core (beginMode2D, clearBackground, closeWindow, endMode2D, getFrameTime, getMonitorRefreshRate, getTime, initWindow, setTargetFPS, windowShouldClose)
+import Raylib.Core.Shapes (drawLine, drawRectanglePro)
 import Raylib.Core.Text (drawFPS, drawText)
-import Raylib.Types (Camera2D (..), Color, KeyboardKey, Vector2, vector2'x, pattern Vector2)
+import Raylib.Types (Camera2D (..), Color, pattern Vector2)
 import Raylib.Types.Core (Rectangle (..))
 import Raylib.Util (WindowResources, drawing, raylibApplication)
-import Raylib.Util.Colors (black, darkGreen, lightGray, rayWhite)
+import Raylib.Util.Colors (black, darkGreen, rayWhite)
+import Script
 import Types
 
 screenWidth, screenHeight, old_targetFPS :: Int
@@ -23,51 +25,23 @@ screenWidth = 1000
 screenHeight = 1000
 old_targetFPS = 60
 
-data OldTank = OldTank
-    { position :: Vector2
-    , vehicleBearing :: Float
-    , turretBearing :: Float -- Relative to vehicle
-    }
-
 data GameState = GameState [Entity]
 
 type RaylibState = (GameState, WindowResources)
 
--- Doesn't handle more than 1 input at a time...
-tankHumanInput :: Script
-tankHumanInput totalTime deltaTime movementInput
-    | MoveForward `elem` movementInput = Throttle $ throttleFactor * deltaTime
-    | MoveBackward `elem` movementInput = Throttle $ -throttleFactor * deltaTime
-    | MoveLeft `elem` movementInput = Steer $ -steerFactor * deltaTime
-    | MoveRight `elem` movementInput = Steer $ steerFactor * deltaTime
-    | AimLeft `elem` movementInput = Aim $ -aimFactor * deltaTime
-    | AimRight `elem` movementInput = Aim $ aimFactor * deltaTime
-    | otherwise = DoNothing
-  where
-    throttleFactor = 15000
-    steerFactor = 5000
-    aimFactor = 5000
-
-tankAutoScript :: Script
-tankAutoScript totalTime deltaTime movementInput
-    | totalTime > 1 && totalTime < 2 = Throttle 100
-    | totalTime > 4 && totalTime < 6 = Steer 100
-    | totalTime > 8 && totalTime < 10 = Throttle (-100)
-    | totalTime > 12 && totalTime < 14 = Aim (100)
-    | totalTime > 16 && totalTime < 30 = Fire
-    | otherwise = DoNothing
-
+initGameState :: GameState
 initGameState =
     GameState
         [ Tank
-            def
-            MovingPlatform{position = Position 500 500, rotation = Rotation 180, speed = Speed 0}
-            def
-            MountedPlatform{rotation = Rotation (0)}
+            (Dynamics (RotationRate 0) (Acceleration 0))
+            (MovingPlatform (Position 500 500) (Rotation 180) (Speed 0))
+            (Dynamics (RotationRate 0) (Acceleration 0))
+            (MountedPlatform (Rotation 0))
             tankLimits
+            tankHumanInput
         , Projectile
-            PlatformDynamics{acceleration = Acceleration 100}
-            MovingPlatform{position = Position 100 100, rotation = Rotation 180, speed = Speed 0}
+            (Dynamics (RotationRate 0) (Acceleration 100))
+            (MovingPlatform (Position 100 100) (Rotation 180) (Speed 0))
             projectileLimits
         ]
 
@@ -83,16 +57,32 @@ mainLoop (GameState entities, window) = do
     -- Run the sim
     --
     totalTime <- getTime
-    delta <- getFrameTime
-    movementInputs <- getMovementInputs
-    let entities' = tick totalTime delta movementInputs tankHumanInput <$> entities
+    deltaTime <- getFrameTime
+    interactiveInputs <- getInteractiveInputs
+
+    -- Execute scripts for all entities which have them
+    --
+    entities' :: [Entity] <-
+        join
+            <$> mapM
+                ( \entity -> do
+                    instructions <- case entity of
+                        Tank _ _ _ _ _ script -> runScript script totalTime deltaTime interactiveInputs
+                        _ -> pure []
+
+                    -- Tick the game state
+                    --
+                    pure $ tick totalTime deltaTime entity instructions
+                )
+                entities
+
     drawing
         ( do
             beginMode2D camera
             clearBackground rayWhite
             drawFPS 10 screenHeight
-            drawText ("input: " <> show movementInputs) 0 (screenHeight + 18) 18 black
             drawText "robowars" 30 40 18 black
+            drawText ("input: " <> show interactiveInputs) 0 (screenHeight + 18) 18 black
 
             -- Draw everything
             --
@@ -127,28 +117,29 @@ drawBox (Position posx posy) width height (Rotation rotation) color =
 
 drawBoxOffset :: Position -> Float -> Float -> Rotation -> Color -> Position -> IO ()
 drawBoxOffset (Position posx posy) width height (Rotation rotation) color (Position offx offy) =
-    drawRectanglePro (frame posx posy) (origin offx offy) rotation color
+    drawRectanglePro (frame posx posy) origin rotation color
   where
     frame x y = Rectangle x y width height
-    origin offx offy = Vector2 (offx + (width / 2)) (offy + (height / 2))
+    origin = Vector2 (offx + (width / 2)) (offy + (height / 2))
 
 drawTelemetry :: Entity -> IO ()
-drawTelemetry (Tank dynamics platform turretDynamics turret _) =
-    let (Position x y) = platform.position
+drawTelemetry (Tank dynamics (MovingPlatform platform'position platform'rotation platform'speed) turretDynamics (MountedPlatform turret'rotation) _ _) =
+    let (Position x y) = platform'position
      in do
-            drawText (show platform.speed <> "/" <> show dynamics.acceleration) (round x + 12) (round y - 15) 18 black
-            drawText (show platform.rotation <> "/" <> show dynamics.rotationRate) (round x + 12) (round y - 0) 18 black
-            drawText ("Turret " <> show turret.rotation <> "/" <> show turretDynamics.rotationRate) (round x + 12) (round y + 15) 18 black
+            drawText (show platform'speed <> "/" <> (show $ acceleration dynamics)) (round x + 12) (round y - 15) 18 black
+            drawText (show platform'rotation <> "/" <> (show $ rotationRate dynamics)) (round x + 12) (round y - 0) 18 black
+            drawText ("Turret " <> show turret'rotation <> "/" <> (show $ rotationRate turretDynamics)) (round x + 12) (round y + 15) 18 black
 drawTelemetry _ = pure ()
 
 drawEntity :: Entity -> IO ()
-drawEntity (Projectile _ platform _) =
-    drawBox platform.position 3 5 platform.rotation black
+drawEntity (Projectile _ (MovingPlatform platform'position platform'rotation platform'speed) _) =
+    drawBox platform'position 3 5 platform'rotation black
 drawEntity (Mine _) = pure ()
-drawEntity entity@(Tank _ platform _ turret _) = do
-    drawBox platform.position 20 30 platform.rotation darkGreen
-    drawBoxOffset platform.position 5 25 (Rotation $ coerce platform.rotation + coerce turret.rotation) black (Position 0 10)
+drawEntity entity@(Tank _ (MovingPlatform platform'position platform'rotation platform'speed) _ (MountedPlatform turret'rotation) _ _) = do
+    drawBox platform'position 20 30 platform'rotation darkGreen
+    drawBoxOffset platform'position 5 25 (Rotation $ coerce platform'rotation + coerce turret'rotation) black (Position 0 10)
     drawTelemetry entity
+drawEntity _ = pure ()
 
 shouldClose :: RaylibState -> IO Bool
 shouldClose _ = windowShouldClose

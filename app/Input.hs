@@ -1,23 +1,32 @@
 module Input where
 
-import Data.Functor (($>))
 import Raylib.Core (isKeyDown)
 import Raylib.Types (KeyboardKey (..))
 
-data MovementInput = MoveForward | MoveBackward | MoveLeft | MoveRight | AimLeft | AimRight deriving (Eq, Show)
-data ActionInput = Fire | LayMine deriving (Eq, Show)
+data InteractiveInput
+    = MoveForward
+    | MoveBackward
+    | MoveLeft
+    | MoveRight
+    | AimLeft
+    | AimRight
+    | Fire
+    | LayMine
+    deriving (Eq, Show)
 
-movementMap :: [(KeyboardKey, MovementInput)]
-movementMap =
+interactiveMap :: [(KeyboardKey, InteractiveInput)]
+interactiveMap =
     [ (KeyW, MoveForward)
     , (KeyS, MoveBackward)
     , (KeyA, MoveLeft)
     , (KeyD, MoveRight)
     , (KeyQ, AimLeft)
     , (KeyE, AimRight)
+    , (KeySpace, Fire)
+    , (KeyX, LayMine)
     ]
 
-getMovementInputs :: IO [MovementInput]
-getMovementInputs = do
-    inputs <- mapM (\(key, input) -> (,input) <$> isKeyDown key) movementMap
+getInteractiveInputs :: IO [InteractiveInput]
+getInteractiveInputs = do
+    inputs <- mapM (\(key, input) -> (,input) <$> isKeyDown key) interactiveMap
     pure $ snd <$> filter fst inputs

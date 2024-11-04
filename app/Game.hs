@@ -4,48 +4,70 @@
 
 module Game where
 
-import Input (MovementInput)
+import Script
 import Types
 
-tick :: TotalTime -> DeltaTime -> [MovementInput] -> Script -> Entity -> Entity
-tick totalTime deltaTime movementInput script (Tank platformDynamics platform turretDynamics turret limits) =
-    let op = script totalTime deltaTime movementInput
+applyDynamicsInstructions :: DeltaTime -> (Dynamics, Dynamics) -> [Instruction] -> (Dynamics, Dynamics)
+applyDynamicsInstructions deltaTime dynamics instructions = foldr go dynamics instructions
+  where
+    go (Throttle amount) (Dynamics platform'rotationRate platform'acceleration, Dynamics turret'rotationRate turret'acceleration) =
+        (Dynamics platform'rotationRate (platform'acceleration + Acceleration (amount * deltaTime)), Dynamics turret'rotationRate turret'acceleration)
+    go (Steer amount) (Dynamics platform'rotationRate platform'acceleration, Dynamics turret'rotationRate turret'acceleration) =
+        (Dynamics (platform'rotationRate + RotationRate (amount * deltaTime)) platform'acceleration, Dynamics turret'rotationRate turret'acceleration)
+    go (Aim amount) (Dynamics platform'rotationRate platform'acceleration, Dynamics turret'rotationRate turret'acceleration) =
+        (Dynamics platform'rotationRate platform'acceleration, Dynamics (turret'rotationRate + RotationRate (amount * deltaTime)) turret'acceleration)
+    go _ dynamics' = dynamics'
 
+applyActionInstructions :: DeltaTime -> Entity -> [Instruction] -> [Entity]
+applyActionInstructions _ (Tank _ (MovingPlatform platform'position platform'rotation _) _ (MountedPlatform turret'rotation) _ _) instructions = foldr go [] instructions
+  where
+    go Fire acc = (Projectile (Dynamics (RotationRate 0) (Acceleration (-250))) (MovingPlatform platform'position (turret'rotation + platform'rotation) (Speed 600)) projectileLimits) : acc
+    go LayMine acc = acc
+    go _ acc = acc
+applyActionInstructions _ _ _ = []
+
+tick :: TotalTime -> DeltaTime -> Entity -> [Instruction] -> [Entity]
+tick _totalTime deltaTime (Tank platformDynamics (MovingPlatform platform'position platform'rotation platform'speed) turretDynamics (MountedPlatform turret'rotation) limits script) instructions =
+    let
         -- Perform the movement / rotation transformations requested and clamp them to limits
-        new'platformDynamics :: PlatformDynamics
-        new'platformDynamics = clampPlatformDynamics limits $ case op of
-            Throttle amount ->
-                platformDynamics{acceleration = platformDynamics.acceleration + Acceleration (amount * deltaTime)}
-            Steer amount ->
-                platformDynamics{rotationRate = platformDynamics.rotationRate + RotationRate (amount * deltaTime)}
-            _ -> platformDynamics
+        (new'platformDynamics', new'turretDynamics') = applyDynamicsInstructions deltaTime (platformDynamics, turretDynamics) instructions
 
-        new'turretDynamics :: PlatformDynamics
-        new'turretDynamics = clampPlatformDynamics limits $ case op of
-            Aim amount ->
-                turretDynamics{rotationRate = turretDynamics.rotationRate + RotationRate (amount * deltaTime)}
-            _ -> turretDynamics
+        -- Clamp the new values to the limits
+        (new'platformDynamics, new'turretDynamics) =
+            ( clampPlatformDynamics limits new'platformDynamics'
+            , clampPlatformDynamics limits new'turretDynamics'
+            )
 
         -- Calculate the new values
-        new'rotation = calcRotationFromRotationRate deltaTime (platform.rotation) (new'platformDynamics.rotationRate)
-        new'speed = calcSpeedFromAcceleration deltaTime (platform.speed) (new'platformDynamics.acceleration)
-        new'pos = calcPositionFromSpeed deltaTime (platform.position) (platform.rotation) new'speed
-        new'turretRotation = calcRotationFromRotationRate deltaTime (turret.rotation) (new'turretDynamics.rotationRate)
+        new'rotation = calcRotationFromRotationRate deltaTime (platform'rotation) (rotationRate new'platformDynamics)
+        new'speed = calcSpeedFromAcceleration deltaTime (platform'speed) (acceleration new'platformDynamics)
+        new'pos = calcPositionFromSpeed deltaTime (platform'position) (platform'rotation) new'speed
+        new'turretRotation = calcRotationFromRotationRate deltaTime (turret'rotation) (rotationRate new'turretDynamics)
 
+        -- And finally clamp those
         new'platform = clampPlatform limits (MovingPlatform new'pos new'rotation new'speed)
         new'turretPlatform = clampPlatform limits (MountedPlatform new'turretRotation)
-     in Tank new'platformDynamics new'platform new'turretDynamics new'turretPlatform limits
-tick totalTime deltaTime movementInput script mine@(Mine _) = mine
-tick totalTime deltaTime movementInput script proj@(Projectile dynamics platform limits) =
-    proj
+
+        newTank = Tank new'platformDynamics new'platform new'turretDynamics new'turretPlatform limits script
+
+        -- Apply any actions, which could create new entities (like projectiles or mines)
+        newEntities = applyActionInstructions deltaTime newTank instructions
+     in
+        newTank : newEntities
+tick _totalTime _deltaTime mine@(Mine _) _instruction = [mine]
+tick _totalTime deltaTime (Projectile dynamics (MovingPlatform platform'position platform'rotation platform'speed) limits) _instruction =
+    -- nuke the projectile if it's dropped to the ground (speed 0)
+    if platform'speed > 0 then [new'projectile] else []
   where
     new'dynamics = clampPlatformDynamics limits dynamics
-    newSpeed = calcSpeedFromAcceleration deltaTime (platform.speed) (dynamics.acceleration)
-    newPos = calcPositionFromSpeed deltaTime (platform.position) (platform.rotation) newSpeed
+    newSpeed = calcSpeedFromAcceleration deltaTime (platform'speed) (acceleration dynamics)
+    newPos = calcPositionFromSpeed deltaTime (platform'position) (platform'rotation) newSpeed
 
-    new'platform = clampPlatform limits (MovingPlatform newPos (platform.rotation) newSpeed)
+    new'platform = clampPlatform limits (MovingPlatform newPos (platform'rotation) newSpeed)
 
-    proj = Projectile new'dynamics new'platform limits
+    new'projectile = Projectile new'dynamics new'platform limits
+-- Should warn...
+tick _ _ _ _ = []
 
 clampPlatform :: Limits -> Platform -> Platform
 clampPlatform (Limits _ (MaxSpeed maxSpeed) _) (MovingPlatform position rotation speed) =
@@ -56,11 +78,11 @@ clampPlatform (Limits _ (MaxSpeed maxSpeed) _) (MovingPlatform position rotation
 clampPlatform (Limits _ _ _) (MountedPlatform rotation) =
     MountedPlatform rotation
 
-clampPlatformDynamics :: Limits -> PlatformDynamics -> PlatformDynamics
-clampPlatformDynamics (Limits (MaxAcceleration maxAcceleration) _ (MaxRotationRate maxRotationRate)) (PlatformDynamics rotationRate acceleration) =
-    PlatformDynamics
-        (clamp rotationRate maxRotationRate)
-        (clamp acceleration maxAcceleration)
+clampPlatformDynamics :: Limits -> Dynamics -> Dynamics
+clampPlatformDynamics (Limits (MaxAcceleration maxAcceleration) _ (MaxRotationRate maxRotationRate)) (Dynamics platform'rotationRate platform'acceleration) =
+    Dynamics
+        (clamp platform'rotationRate maxRotationRate)
+        (clamp platform'acceleration maxAcceleration)
 
 clamp :: (Ord a) => (Num a) => a -> a -> a
 clamp value max' =
@@ -85,9 +107,9 @@ calcRotationFromRotationRate delta (Rotation currentRot) (RotationRate rate) =
 class Default a where
     def :: a
 
-instance Default PlatformDynamics where
-    def :: PlatformDynamics
-    def = PlatformDynamics (RotationRate 0) (Acceleration 0)
+instance Default Dynamics where
+    def :: Dynamics
+    def = Dynamics (RotationRate 0) (Acceleration 0)
 
 instance Default Limits where
     def :: Limits

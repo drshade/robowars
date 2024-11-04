@@ -48,7 +48,7 @@ extra-doc-files:    CHANGELOG.md
 -- extra-source-files:
 
 common warnings
-    ghc-options: -Wall
+    ghc-options: -Wall -Wpartial-fields
 
 executable robowars
     -- Import common warning flags.
@@ -61,12 +61,14 @@ executable robowars
     other-modules:    Game
                     , Types
                     , Input
+                    , Script
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
 
     -- Other library packages from which modules are imported.
-    build-depends:    base 
+    build-depends:    base
+                    , mtl
                     , h-raylib
 
     -- Directories containing source files.

@@ -38,7 +38,14 @@ initGameState =
             (Dynamics (RotationRate 0) (Acceleration 0))
             (MountedPlatform (Rotation 0))
             tankLimits
-            tankHumanInput
+            test1'scriptdef
+        , Tank
+            (Dynamics (RotationRate 0) (Acceleration 0))
+            (MovingPlatform (Position 250 250) (Rotation 180) (Speed 0))
+            (Dynamics (RotationRate 0) (Acceleration 0))
+            (MountedPlatform (Rotation 0))
+            tankLimits
+            test2'scriptdef
         , Projectile
             (Dynamics (RotationRate 0) (Acceleration 100))
             (MovingPlatform (Position 100 100) (Rotation 180) (Speed 0))
@@ -67,7 +74,9 @@ mainLoop (GameState entities, window) = do
             <$> mapM
                 ( \entity -> do
                     instructions <- case entity of
-                        Tank _ _ _ _ _ script -> runScript script totalTime deltaTime interactiveInputs
+                        Tank _ _ _ _ _ script ->
+                            let (initialState, script'runner) = script
+                             in pure $ runScript script'runner initialState totalTime deltaTime interactiveInputs
                         _ -> pure []
 
                     -- Tick the game state

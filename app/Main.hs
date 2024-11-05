@@ -38,7 +38,7 @@ initGameState =
             (Dynamics (RotationRate 0) (Acceleration 0))
             (MountedPlatform (Rotation 0))
             tankLimits
-            test1'scriptdef
+            tankHumanInput
         , Tank
             (Dynamics (RotationRate 0) (Acceleration 0))
             (MovingPlatform (Position 250 250) (Rotation 180) (Speed 0))
@@ -73,11 +73,10 @@ mainLoop (GameState entities, window) = do
         join
             <$> mapM
                 ( \entity -> do
-                    instructions <- case entity of
-                        Tank _ _ _ _ _ script ->
-                            let (initialState, script'runner) = script
-                             in pure $ runScript script'runner initialState totalTime deltaTime interactiveInputs
-                        _ -> pure []
+                    (newState, instructions) <- case entity of
+                        Tank _ _ _ _ _ scriptRunner ->
+                            pure $ runScript scriptRunner Nothing totalTime deltaTime interactiveInputs
+                        _ -> pure (Nothing, [])
 
                     -- Tick the game state
                     --
@@ -92,6 +91,7 @@ mainLoop (GameState entities, window) = do
             drawFPS 10 screenHeight
             drawText "robowars" 30 40 18 black
             drawText ("input: " <> show interactiveInputs) 0 (screenHeight + 18) 18 black
+            drawText ("entities: " <> (show $ length entities')) 0 (screenHeight + 36) 18 black
 
             -- Draw everything
             --

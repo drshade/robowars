@@ -68,12 +68,10 @@ executable robowars
 
     -- Other library packages from which modules are imported.
     build-depends:    base
-                    -- for tank scripts
                     , mtl
-                    -- graphics library
                     , h-raylib
-                    -- For serializing game state
                     , binary
+                    , bytestring
 
     -- Directories containing source files.
     hs-source-dirs:   app

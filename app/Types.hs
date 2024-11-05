@@ -4,7 +4,7 @@
 
 module Types where
 
-import Script (Script, ScriptDef)
+import Script (ScriptRunner)
 import Text.Printf (printf)
 
 data Position = Position Float Float deriving (Show)
@@ -57,6 +57,6 @@ data Limits = Limits MaxAcceleration MaxSpeed MaxRotationRate
     deriving (Show)
 
 data Entity
-    = Tank Dynamics Platform Dynamics Platform Limits ScriptDef
+    = Tank Dynamics Platform Dynamics Platform Limits ScriptRunner
     | Projectile Dynamics Platform Limits
     | Mine Platform

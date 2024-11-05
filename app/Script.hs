@@ -6,6 +6,7 @@ import Control.Monad.Identity (Identity, runIdentity)
 import Control.Monad.Reader (ReaderT, ask, runReaderT)
 import Control.Monad.State (StateT, get, put, runStateT)
 import Data.Binary (Binary, decode, encode)
+import Data.ByteString.Lazy qualified as BS
 import GHC.Generics (Generic)
 import Input (InteractiveInput)
 import Input qualified (InteractiveInput (..))
@@ -25,54 +26,31 @@ type DeltaTime = Float
 data UserState = forall s. (Binary s) => UserState s
 
 -- Monad stack for scripts
-type Script a = StateT (UserState, [Instruction]) (ReaderT (TotalTime, DeltaTime, [InteractiveInput]) Identity) a
+type Script a = StateT [Instruction] (ReaderT (TotalTime, DeltaTime, [InteractiveInput]) Identity) a
 
-runScript :: Script a -> UserState -> TotalTime -> DeltaTime -> [InteractiveInput] -> [Instruction]
-runScript script initialState totalTime deltaTime interactiveInput = do
+type ScriptStateBlob = BS.ByteString
+type ScriptRunner = Maybe ScriptStateBlob -> Script (Maybe ScriptStateBlob)
+
+runScript :: ScriptRunner -> Maybe ScriptStateBlob -> TotalTime -> DeltaTime -> [InteractiveInput] -> (Maybe ScriptStateBlob, [Instruction])
+runScript script raw'state totalTime deltaTime interactiveInput = do
+    let state = runStateT (script raw'state) []
     let readerState = (totalTime, deltaTime, interactiveInput)
-    snd $ snd <$> runIdentity $ runReaderT (runStateT script (initialState, [])) readerState
-
-type ScriptDef = (UserState, Script ())
+    runIdentity $ runReaderT state readerState
 
 data Test1UserState = Test1UserState (Int, Int, Int) deriving (Generic)
 instance Binary Test1UserState
 
-test1'scriptdef :: ScriptDef
-test1'scriptdef =
-    (initialState, scriptLoop)
-  where
-    initialState = UserState @(Int, Int, Int) (1, 2, 3)
-    scriptLoop = do
-        -- UserState raw <- getMyState
-        -- let x :: (Int, Int, Int)
-        --     x = decode raw
-        putInstructions [Fire]
+test1'scriptdef :: Maybe ScriptStateBlob -> Script (Maybe ScriptStateBlob)
+test1'scriptdef Nothing = pure $ Just $ encode ((0, 0, 0) :: (Int, Int, Int))
+test1'scriptdef (Just raw'state) = do
+    let (_, b, c) = decode raw'state :: (Int, Int, Int)
+    put [Fire]
+    pure $ Just $ encode (b, c, c + 1)
 
-test2'scriptdef :: ScriptDef
-test2'scriptdef =
-    (initialState, scriptLoop)
-  where
-    initialState = UserState "hello"
-    scriptLoop = putInstructions [Steer 100]
-
-putInstructions :: [Instruction] -> Script ()
-putInstructions instructions = do
-    (userState, _) <- get
-    put (userState, instructions)
-
-modifyMyState :: (UserState -> UserState) -> Script ()
-modifyMyState f = do
-    (userState, instructions) <- get
-    put (f userState, instructions)
-
-putMyState :: UserState -> Script ()
-putMyState userState = do
-    modifyMyState (const userState)
-
-getMyState :: Script UserState
-getMyState = do
-    (userState, _) <- get
-    pure userState
+test2'scriptdef :: Maybe ScriptStateBlob -> Script (Maybe ScriptStateBlob)
+test2'scriptdef _ = do
+    put [Steer 100]
+    pure Nothing
 
 getTotalTime :: Script TotalTime
 getTotalTime = do
@@ -97,11 +75,12 @@ tankTestScript = do
     pure ()
 
 -- Doesn't handle more than 1 input at a time...
-tankHumanInput :: Script ()
-tankHumanInput = do
+tankHumanInput :: Maybe ScriptStateBlob -> Script (Maybe ScriptStateBlob)
+tankHumanInput _ = do
     deltaTime <- getDeltaTime
     interactiveInput <- getInteractiveInput
-    putInstructions $ foldr (go deltaTime) [] interactiveInput
+    put $ foldr (go deltaTime) [] interactiveInput
+    pure Nothing
   where
     throttleFactor = 15000
     steerFactor = 5000
@@ -117,8 +96,8 @@ tankHumanInput = do
 
 toms'script :: Script ()
 toms'script = do
-    (totalTime, _, _) <- ask
-    putInstructions $ [go totalTime]
+    totalTime <- getTotalTime
+    put $ [go totalTime]
   where
     go totalTime
         | totalTime > 1 && totalTime < 2 = Throttle 100
@@ -130,5 +109,5 @@ toms'script = do
 
 bhaveshs'script :: Script ()
 bhaveshs'script = do
-    (totalTime, _, _) <- ask
-    putInstructions $ [Fire, Throttle 100, Steer (-100), Aim (-50)]
+    totalTime <- getTotalTime
+    put $ [Fire, Throttle 100, Steer (-100), Aim (-50)]

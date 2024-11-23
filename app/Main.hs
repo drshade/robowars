@@ -4,6 +4,13 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE NoFieldSelectors #-}
 
+{-
+Improvement ideas:
+- Robot scripts could be arrows, and executing them could be done in parallel
+  rather than sequentially (game itself could be arrows too)
+- Clean up the Types to be nicer (e.g. Position = Position *= Acceleration *^ Time)
+-}
+
 module Main where
 
 import Control.Monad (join)
@@ -45,7 +52,7 @@ initGameState =
             (Dynamics (RotationRate 0) (Acceleration 0))
             (MountedPlatform (Rotation 0))
             tankLimits
-            test2'scriptdef
+            test1'scriptdef
         , Projectile
             (Dynamics (RotationRate 0) (Acceleration 100))
             (MovingPlatform (Position 100 100) (Rotation 180) (Speed 0))

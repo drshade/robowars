@@ -1,10 +1,10 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE NoFieldSelectors #-}
 
 module Game where
 
-import Script
 import Types
 
 applyDynamicsInstructions :: DeltaTime -> (Dynamics, Dynamics) -> [Instruction] -> (Dynamics, Dynamics)
@@ -39,10 +39,10 @@ tick _totalTime deltaTime (Tank platformDynamics (MovingPlatform platform'positi
             )
 
         -- Calculate the new values
-        new'rotation = calcRotationFromRotationRate deltaTime (platform'rotation) (rotationRate new'platformDynamics)
-        new'speed = calcSpeedFromAcceleration deltaTime (platform'speed) (acceleration new'platformDynamics)
-        new'pos = calcPositionFromSpeed deltaTime (platform'position) (platform'rotation) new'speed
-        new'turretRotation = calcRotationFromRotationRate deltaTime (turret'rotation) (rotationRate new'turretDynamics)
+        new'rotation = platform'rotation -/< rotationRate new'platformDynamics -/< deltaTime
+        new'speed = platform'speed -/< acceleration new'platformDynamics -/< deltaTime
+        new'pos = platform'position -/< new'rotation -/< new'speed -/< deltaTime
+        new'turretRotation = turret'rotation -/< rotationRate new'turretDynamics -/< deltaTime
 
         -- And finally clamp those
         new'platform = clampPlatform limits (MovingPlatform new'pos new'rotation new'speed)
@@ -60,8 +60,8 @@ tick _totalTime deltaTime (Projectile dynamics (MovingPlatform platform'position
     if platform'speed > 0 then [new'projectile] else []
   where
     new'dynamics = clampPlatformDynamics limits dynamics
-    newSpeed = calcSpeedFromAcceleration deltaTime (platform'speed) (acceleration dynamics)
-    newPos = calcPositionFromSpeed deltaTime (platform'position) (platform'rotation) newSpeed
+    newSpeed = platform'speed -/< acceleration new'dynamics -/< deltaTime
+    newPos = platform'position -/< platform'rotation -/< newSpeed -/< deltaTime
 
     new'platform = clampPlatform limits (MovingPlatform newPos (platform'rotation) newSpeed)
 
@@ -87,22 +87,6 @@ clampPlatformDynamics (Limits (MaxAcceleration maxAcceleration) _ (MaxRotationRa
 clamp :: (Ord a) => (Num a) => a -> a -> a
 clamp value max' =
     if abs value > max' then (if value < 0 then (max' * (-1)) else max') else (value)
-
-toRadians :: Float -> Float
-toRadians deg = deg * pi / 180
-
--- 0 degrees is up, 90 degrees is right, 180 degrees is down, 270 degrees is left
-calcPositionFromSpeed :: DeltaTime -> Position -> Rotation -> Speed -> Position
-calcPositionFromSpeed delta (Position x y) (Rotation rot) (Speed speed) =
-    Position (x + speed * sin (toRadians rot) * delta) (y + speed * cos (toRadians rot) * delta * (-1))
-
-calcSpeedFromAcceleration :: DeltaTime -> Speed -> Acceleration -> Speed
-calcSpeedFromAcceleration delta (Speed currentSpeed) (Acceleration acceleration) =
-    Speed $ currentSpeed + acceleration * delta
-
-calcRotationFromRotationRate :: DeltaTime -> Rotation -> RotationRate -> Rotation
-calcRotationFromRotationRate delta (Rotation currentRot) (RotationRate rate) =
-    Rotation $ currentRot + rate * delta
 
 class Default a where
     def :: a

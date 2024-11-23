@@ -1,11 +1,19 @@
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE NoFieldSelectors #-}
 
 module Types where
 
-import Script (ScriptRunner)
+import Control.Monad.Identity (Identity)
+import Control.Monad.Reader (ReaderT)
+import Control.Monad.State (StateT)
+import Data.ByteString.Lazy qualified as BS
+import Input (InteractiveInput)
 import Text.Printf (printf)
+
+type TotalTime = Double
+type DeltaTime = Float
 
 data Position = Position Float Float deriving (Show)
 
@@ -56,7 +64,62 @@ acceleration (Dynamics _ acceleration') = acceleration'
 data Limits = Limits MaxAcceleration MaxSpeed MaxRotationRate
     deriving (Show)
 
+data Instruction
+    = Throttle Float
+    | Steer Float
+    | Aim Float
+    | Fire
+    | LayMine
+    | ScanRadar
+    | DoNothing
+
+type Script a = StateT [Instruction] (ReaderT (TotalTime, DeltaTime, [InteractiveInput]) Identity) a
+
+type ScriptStateBlob = BS.ByteString
+type ScriptRunner = Maybe ScriptStateBlob -> Script (Maybe ScriptStateBlob)
+
 data Entity
     = Tank Dynamics Platform Dynamics Platform Limits ScriptRunner
     | Projectile Dynamics Platform Limits
     | Mine Platform
+
+--
+-- The physics engine
+--
+toRadians :: Rotation -> Rotation
+toRadians (Rotation rotation) = Rotation $ rotation * pi / 180
+
+data PositionRotation = PositionRotation Position Rotation
+data PositionRotationSpeed = PositionRotationSpeed Position Rotation Speed
+data SpeedAcceleration = SpeedAcceleration Speed Acceleration
+data RotationRotationRate = RotationRotationRate Rotation RotationRate
+
+class Derive a b c | a b -> c where
+    (-/<) :: a -> b -> c
+
+instance Derive Position Rotation PositionRotation where
+    position' -/< rotation' = PositionRotation position' rotation'
+
+instance Derive PositionRotation Speed PositionRotationSpeed where
+    (PositionRotation position' rotation') -/< speed' = PositionRotationSpeed position' rotation' speed'
+
+instance Derive Speed Acceleration SpeedAcceleration where
+    speed' -/< acceleration' = SpeedAcceleration speed' acceleration'
+
+instance Derive Rotation RotationRate RotationRotationRate where
+    rotation' -/< rotationRate' = RotationRotationRate rotation' rotationRate'
+
+instance Derive PositionRotationSpeed DeltaTime Position where
+    (PositionRotationSpeed (Position posx' posy') rotation' (Speed speed')) -/< delta' =
+        let Rotation rotationRadians = toRadians rotation'
+         in Position (posx' + speed' * sin rotationRadians * delta') (posy' + speed' * cos rotationRadians * delta' * (-1))
+
+instance Derive SpeedAcceleration DeltaTime Speed where
+    (SpeedAcceleration (Speed currentSpeed') (Acceleration acceleration')) -/< delta' =
+        Speed $ currentSpeed' + acceleration' * delta'
+
+instance Derive RotationRotationRate DeltaTime Rotation where
+    (RotationRotationRate (Rotation rotation') (RotationRate rotationRate')) -/< delta' =
+        Rotation $ rotation' + rotationRate' * delta'
+
+infixl 8 -/<

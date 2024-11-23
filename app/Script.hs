@@ -6,30 +6,14 @@ import Control.Monad.Identity (Identity, runIdentity)
 import Control.Monad.Reader (ReaderT, ask, runReaderT)
 import Control.Monad.State (StateT, get, put, runStateT)
 import Data.Binary (Binary, decode, encode)
-import Data.ByteString.Lazy qualified as BS
 import GHC.Generics (Generic)
 import Input (InteractiveInput)
 import Input qualified (InteractiveInput (..))
-
-data Instruction
-    = Throttle Float
-    | Steer Float
-    | Aim Float
-    | Fire
-    | LayMine
-    | ScanRadar
-    | DoNothing
-
-type TotalTime = Double
-type DeltaTime = Float
+import Types
 
 data UserState = forall s. (Binary s) => UserState s
 
 -- Monad stack for scripts
-type Script a = StateT [Instruction] (ReaderT (TotalTime, DeltaTime, [InteractiveInput]) Identity) a
-
-type ScriptStateBlob = BS.ByteString
-type ScriptRunner = Maybe ScriptStateBlob -> Script (Maybe ScriptStateBlob)
 
 runScript :: ScriptRunner -> Maybe ScriptStateBlob -> TotalTime -> DeltaTime -> [InteractiveInput] -> (Maybe ScriptStateBlob, [Instruction])
 runScript script raw'state totalTime deltaTime interactiveInput = do

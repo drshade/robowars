@@ -63,7 +63,6 @@ executable robowars
                     , Input
                     , Script
                     , ArrowsPlay
-                    , BetterScript
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
@@ -75,6 +74,7 @@ executable robowars
                     , binary
                     , bytestring
                     , arrows
+                    , lens
 
     -- Directories containing source files.
     hs-source-dirs:   app

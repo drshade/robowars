@@ -2,50 +2,42 @@
 
 module Script where
 
-import Control.Monad.RWS (RWS, execRWS, get, modify, tell)
+import Control.Monad.RWS (RWS, ask, execRWS, get, modify, put, tell)
 import Debug.Trace (trace)
 import Input qualified (InteractiveInput (..))
 import Types
 
-stateScript :: ScriptExecutor
-stateScript = ScriptExecutor $ (runScript script initState)
+script :: s -> RWS ScriptInput ScriptOutput s a -> Script
+script initState rws = Script $ runScript rws initState
   where
-    initState :: Int
-    initState = 0
-    runScript :: RWS ScriptInput ScriptOutput Int a -> Int -> ScriptInput -> (ScriptExecutor, ScriptOutput)
-    runScript rws startingState input =
-      let (state, output) = execRWS rws input startingState
-       in (ScriptExecutor $ (runScript rws state), output)
-    script :: RWS ScriptInput ScriptOutput Int ()
-    script = do
-      v <- get
-      _ <- trace (show v) $ modify (+ 1)
-      _ <- tell [Throttle 10]
-      pure ()
+    runScript :: RWS ScriptInput ScriptOutput s a -> s -> ScriptInput -> (Script, ScriptOutput)
+    runScript rws' startingState input =
+      let (state, output) = execRWS rws' input startingState
+       in (Script $ (runScript rws' state), output)
 
--- Doesn't handle more than 1 input at a time...
-interactiveScript :: ScriptExecutor
-interactiveScript = ScriptExecutor $ script
-  where
-    script :: ScriptInput -> (ScriptExecutor, ScriptOutput)
-    script (_totalTime, deltaTime, interactiveInput) =
-      (interactiveScript, foldr go [] interactiveInput)
-      where
-        throttleFactor = 15000
-        steerFactor = 5000
-        aimFactor = 5000
-        go Input.MoveForward = ((Throttle $ throttleFactor * deltaTime) :)
-        go Input.MoveBackward = ((Throttle $ -throttleFactor * deltaTime) :)
-        go Input.MoveLeft = ((Steer $ -steerFactor * deltaTime) :)
-        go Input.MoveRight = ((Steer $ steerFactor * deltaTime) :)
-        go Input.AimLeft = ((Aim $ -aimFactor * deltaTime) :)
-        go Input.AimRight = ((Aim $ aimFactor * deltaTime) :)
-        go Input.Fire = (Fire :)
-        go Input.LayMine = (LayMine :)
+instruct :: Instruction -> RWS ScriptInput ScriptOutput s ()
+instruct instruction = tell [instruction]
 
--- Test script
-dumbScript :: ScriptExecutor
-dumbScript = ScriptExecutor $ script
-  where
-    script :: ScriptInput -> (ScriptExecutor, ScriptOutput)
-    script _input = (dumbScript, [Throttle 10])
+getState :: RWS ScriptInput ScriptOutput s s
+getState = get
+
+modifyState :: (s -> s) -> RWS ScriptInput ScriptOutput s ()
+modifyState = modify
+
+setState :: s -> RWS ScriptInput ScriptOutput s ()
+setState = put
+
+getTotalTime :: RWS ScriptInput ScriptOutput s TotalTime
+getTotalTime = do
+  (totalTime, _, _) <- ask
+  pure totalTime
+
+getDeltaTime :: RWS ScriptInput ScriptOutput s TotalTime
+getDeltaTime = do
+  (_, deltaTime, _) <- ask
+  pure deltaTime
+
+getInteractiveInput :: RWS ScriptInput ScriptOutput s [Input.InteractiveInput]
+getInteractiveInput = do
+  (_, _, interactiveInput) <- ask
+  pure interactiveInput

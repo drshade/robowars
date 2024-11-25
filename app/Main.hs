@@ -25,6 +25,7 @@ import Raylib.Types.Core (Rectangle (..))
 import Raylib.Util (WindowResources, drawing, raylibApplication)
 import Raylib.Util.Colors (black, darkGreen, rayWhite)
 import Script
+import Scripts
 import Types
 
 screenWidth, screenHeight, old_targetFPS :: Int
@@ -32,13 +33,16 @@ screenWidth = 1000
 screenHeight = 1000
 old_targetFPS = 60
 
-data GameState = GameState [Entity]
+type TotalTicks = Int
+
+data GameState = GameState TotalTicks [Entity]
 
 type RaylibState = (GameState, WindowResources)
 
 initGameState :: GameState
 initGameState =
   GameState
+    0
     [ Tank
         (Dynamics (RotationRate 0) (Acceleration 0))
         (MovingPlatform (Position 500 500) (Rotation 180) (Speed 0))
@@ -59,7 +63,7 @@ initGameState =
         (Dynamics (RotationRate 0) (Acceleration 0))
         (MountedPlatform (Rotation 0))
         tankLimits
-        stateScript,
+        sillyScript,
       Projectile
         (Dynamics (RotationRate 0) (Acceleration 100))
         (MovingPlatform (Position 100 100) (Rotation 180) (Speed 0))
@@ -70,25 +74,37 @@ startup :: IO RaylibState
 startup = do
   window <- initWindow screenWidth screenHeight "robowars"
   refresh <- getMonitorRefreshRate 0
-  setTargetFPS refresh
+  _ <- putStrLn $ "Monitor refresh rate: " <> show refresh
+  _ <- putStrLn $ "Game sim: " <> show simHz <> "hz"
+  setTargetFPS simHz
   pure (initGameState, window)
 
+simHz :: Int
+simHz = 40
+
 mainLoop :: RaylibState -> IO RaylibState
-mainLoop (GameState entities, window) = do
+mainLoop (GameState totalTicks entities, window) = do
   -- Run the sim
   --
-  totalTime <- getTime
-  deltaTime <- getFrameTime
+  _gfx_totalTime <- getTime
+  _gfx_deltaTime <- getFrameTime
   interactiveInputs <- getInteractiveInputs
+
+  -- Even though the game is running at a particular FPS, the simulation must
+  -- step at a fixed rate to ensure it is deterministic
+  let sim_deltaTime :: Float = 1 / fromIntegral simHz
+  let sim_totalTime :: Float = fromIntegral totalTicks * sim_deltaTime
+
+  _ <- putStrLn $ "DeltaTime " <> show sim_deltaTime <> " / TotalTime " <> show sim_totalTime
 
   let entities' :: [Entity] =
         join $
           ( \entity ->
               case entity of
-                Tank a b c d e (ScriptExecutor script) ->
-                  let (nextScript, instructions) = script (totalTime, deltaTime, interactiveInputs)
-                   in tick totalTime deltaTime (Tank a b c d e nextScript) instructions
-                _ -> tick totalTime deltaTime entity []
+                Tank a b c d e (Script script) ->
+                  let (nextScript, instructions) = script (sim_totalTime, sim_deltaTime, interactiveInputs)
+                   in tick sim_totalTime sim_deltaTime (Tank a b c d e nextScript) instructions
+                _ -> tick sim_totalTime sim_deltaTime entity []
           )
             <$> entities
 
@@ -108,7 +124,7 @@ mainLoop (GameState entities, window) = do
         drawBoundary
         endMode2D
     )
-    >> pure (GameState entities', window)
+    >> pure (GameState (totalTicks + 1) entities', window)
   where
     camera =
       Camera2D

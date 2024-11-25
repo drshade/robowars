@@ -5,34 +5,41 @@
 
 module Types where
 
+import Control.Monad.RWS (RWS)
 import Input (InteractiveInput)
 import Text.Printf (printf)
 
-type TotalTime = Double
+-- In seconds
+type TotalTime = Float
 
 type DeltaTime = Float
 
+-- In meters
 data Position = Position Float Float deriving (Show)
 
+-- In radians
+newtype Rotation = Rotation Float deriving (Ord, Eq, Num)
+
+-- In radians per second
 newtype RotationRate = RotationRate Float deriving (Ord, Eq, Num)
+
+-- In meters per second
+newtype Speed = Speed Float deriving (Ord, Eq, Num)
+
+-- In meters per second squared
+newtype Acceleration = Acceleration Float deriving (Ord, Eq, Num)
 
 instance Show RotationRate where
   show :: RotationRate -> String
   show (RotationRate x) = printf "RotationRate %0.2f" x
 
-newtype Rotation = Rotation Float deriving (Ord, Eq, Num)
-
 instance Show Rotation where
   show :: Rotation -> String
   show (Rotation x) = printf "Rotation %0.2f" x
 
-newtype Acceleration = Acceleration Float deriving (Ord, Eq, Num)
-
 instance Show Acceleration where
   show :: Acceleration -> String
   show (Acceleration x) = printf "Acceleration %0.2f" x
-
-newtype Speed = Speed Float deriving (Ord, Eq, Num)
 
 instance Show Speed where
   show :: Speed -> String
@@ -76,10 +83,13 @@ type ScriptInput = (TotalTime, DeltaTime, [InteractiveInput])
 
 type ScriptOutput = [Instruction]
 
-data ScriptExecutor = ScriptExecutor (ScriptInput -> (ScriptExecutor, ScriptOutput))
+data Script
+  = Script (ScriptInput -> (Script, ScriptOutput))
+
+-- \| ScriptWithState (RWS ScriptInput ScriptOutput a ())
 
 data Entity
-  = Tank Dynamics Platform Dynamics Platform Limits ScriptExecutor
+  = Tank Dynamics Platform Dynamics Platform Limits Script
   | Projectile Dynamics Platform Limits
   | Mine Platform
 

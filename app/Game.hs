@@ -5,6 +5,7 @@
 
 module Game where
 
+import Debug.Trace (trace)
 import Types
 
 applyDynamicsInstructions :: DeltaTime -> (Dynamics, Dynamics) -> [Instruction] -> (Dynamics, Dynamics)
@@ -65,7 +66,7 @@ tick _totalTime deltaTime (Projectile dynamics (MovingPlatform platform'position
 
     new'projectile = Projectile new'dynamics new'platform limits
 -- Should warn...
-tick _ _ _ _ = []
+tick _ _ _ _ = trace "Ticking an unmatched entity" []
 
 clampPlatform :: Limits -> Platform -> Platform
 clampPlatform (Limits _ (MaxSpeed maxSpeed) _) (MovingPlatform position rotation speed) =
